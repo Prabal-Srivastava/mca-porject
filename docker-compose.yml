@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    restart: always
+    command: python app.py
+    volumes:
+      - ./backend:/app
+    environment:
+      - SECRET_KEY=your-production-ready-secure-32-byte-flask-secret-key
+      - MONGODB_URI=mongodb://mongodb:27017/coderunner
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - redis
+      - mongodb
+    ports:
+      - "5000:5000"
+
+  celery_worker:
+    build: ./backend
+    restart: always
+    command: celery -A tasks.celery_app worker --loglevel=info
+    user: root
+    privileged: true
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MONGODB_URI=mongodb://mongodb:27017/coderunner
+    depends_on:
+      - redis
+      - backend
+
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+  mongodb:
+    image: mongo:5.0
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+
+  nginx:
+    build: 
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  mongodb_data:
